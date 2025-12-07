@@ -1,0 +1,20 @@
+# Model files
+final_model.pth
+*.pth
+
+# Security - SSH keys
+*.pem
+pix2pix-key.pem
+
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Test outputs
+generated_map.png
+maps/
+
+# Environment
+.env
