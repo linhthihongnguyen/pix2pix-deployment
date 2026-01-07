@@ -2,8 +2,19 @@ import requests
 import base64
 from PIL import Image
 import io
+import os
 
 print("Testing Pix2Pix Service...")
+
+# Auto-detect port (try 8000 first, then 5000)
+BASE_URL = os.getenv('API_URL', 'http://localhost:8000')
+
+# Try to connect, fall back to 5000 if 8000 doesn't work
+try:
+    requests.get(f"{BASE_URL}/health", timeout=2)
+except:
+    BASE_URL = "http://localhost:5000"
+    print(f"Using fallback port: {BASE_URL}")
 
 # Create a simple test image (or use an existing one)
 print("1. Creating test image...")
@@ -22,7 +33,7 @@ buffered.seek(0)
 # Send to service
 print("2. Sending to service...")
 files = {'image': ('test.jpg', buffered.getvalue(), 'image/jpeg')}
-response = requests.post('http://localhost:5000/generate', files=files, timeout=30)
+response = requests.post(f'{BASE_URL}/generate', files=files, timeout=30)
 
 print(f"3. Status Code: {response.status_code}")
 

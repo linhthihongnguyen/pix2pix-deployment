@@ -1,20 +1,39 @@
-# Model files
-final_model.pth
-*.pth
-
-# Security - SSH keys
-*.pem
-pix2pix-key.pem
-
 # Python
-venv/
 __pycache__/
-*.pyc
-*.pyo
+*.py[cod]
+*.so
+*.egg-info/
+.Python
+venv/
+env/
+
+# Model files (too large for git)
+*.pth
+*.pt
+*.ckpt
+
+# Environment variables (contains secrets)
+.env
+.env.local
+
+# Logs
+*.log
+logs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
 
 # Test outputs
 generated_map.png
-maps/
+test_outputs/
 
-# Environment
-.env
+# Jupyter
+.ipynb_checkpoints/
+
+# AWS
+.aws/
+
+maps
