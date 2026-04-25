@@ -1,39 +1,33 @@
 # Python
 __pycache__/
 *.py[cod]
-*.so
-*.egg-info/
-.Python
+*.pyc
 venv/
-env/
-
-# Model files (too large for git)
-*.pth
-*.pt
-*.ckpt
-
-# Environment variables (contains secrets)
-.env
-.env.local
-
-# Logs
-*.log
-logs/
-
-# IDE
-.vscode/
-.idea/
-*.swp
-.DS_Store
-
-# Test outputs
-generated_map.png
-test_outputs/
+.pytest_cache/
 
 # Jupyter
 .ipynb_checkpoints/
 
-# AWS
+# Model files (too large)
+*.pth
+*.pt
+final_model.pth
+
+# Test outputs
+generated_map.png
+result.json
+
+# Results folder (too large)
+pix2pix_results/
+
+# Backups
+*_backup*.py
+*_original.py
+
+# AWS keys
+*.pem
 .aws/
 
-maps
+# OS
+.DS_Store
+Thumbs.db
