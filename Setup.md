@@ -1,151 +1,341 @@
-# Setup Guide - 15 Minutes
+# AWS EC2 Deployment Guide
 
-## What Changed
+Complete guide for deploying the Pix2Pix + Rekognition service to AWS EC2.
 
-### Updated Your Files:
-1. ✅ **requirements.txt** - Added AWS packages (boto3, python-dotenv)
-2. ✅ **app.py** - Added `.env` support (minimal changes)
-3. ✅ **test_generate.py** - Auto-detects port 8000 or 5000
+**Estimated Time:** 2 hours  
+**Cost:** ~$17/month (t3.small instance)  
+**Prerequisites:** AWS account, basic Linux knowledge
 
-### New Files (Only 3!):
-4. ✅ **README.md** - Project documentation
-5. ✅ **.gitignore** - Prevents committing model/secrets
-6. ✅ **.env.example** - Template for credentials
+---
 
-## Step-by-Step Setup
+## Prerequisites
 
-### 1. Install New Dependencies (2 min)
+- AWS account with EC2 access
+- Basic familiarity with SSH and Linux commands
+- Credit card for AWS billing (free tier available)
 
-```bash
-pip install boto3 botocore python-dotenv requests
+---
+
+## Step 1: Launch EC2 Instance
+
+### Create Instance
+
+1. **Login to AWS Console:** https://console.aws.amazon.com
+2. **Navigate to EC2:** Services → Compute → EC2
+3. **Launch Instance:**
+   - **Name:** `pix2pix-server`
+   - **OS:** Ubuntu Server 24.04 LTS (free tier eligible)
+   - **Instance Type:** t3.small (2 vCPUs, 2GB RAM)
+     - ⚠️ t3.micro insufficient (1GB RAM causes OOM errors)
+   - **Key Pair:** Create new → Name: `pix2pix-key` → Download .pem file
+   - **Storage:** 20 GB gp3 SSD (default)
+
+### Configure Security Group
+
+**Add these inbound rules:**
+
+| Type | Port | Source | Description |
+|------|------|--------|-------------|
+| SSH | 22 | 0.0.0.0/0 | SSH access |
+| Custom TCP | 8000 | 0.0.0.0/0 | Flask application |
+
+4. **Launch Instance**
+5. **Note the Public IPv4 address** (e.g., 3.235.252.100)
+
+---
+
+## Step 2: Connect to Instance
+
+### Fix Key Permissions (Windows)
+
+```powershell
+icacls pix2pix-key.pem /inheritance:r
+icacls pix2pix-key.pem /grant:r "$env:USERNAME:(R)"
 ```
 
-Or reinstall everything:
+### SSH into Instance
+
 ```bash
+ssh -i pix2pix-key.pem ubuntu@YOUR-PUBLIC-IP
+```
+
+---
+
+## Step 3: Install System Dependencies
+
+```bash
+# Update system
+sudo apt update && sudo apt upgrade -y
+
+# Install Python and dependencies
+sudo apt install python3-pip python3-venv libgl1 libglib2.0-0 screen -y
+```
+
+**Note:** Ubuntu 24.04 uses `libgl1` (not `libgl1-mesa-glx`)
+
+---
+
+## Step 4: Setup Application
+
+### Create Project Directory
+
+```bash
+mkdir ~/pix2pix-app
+cd ~/pix2pix-app
+```
+
+### Transfer Code
+
+**From your local computer:**
+
+```bash
+# Transfer application code
+scp -i pix2pix-key.pem app.py ubuntu@YOUR-IP:~/pix2pix-app/
+scp -i pix2pix-key.pem requirements.txt ubuntu@YOUR-IP:~/pix2pix-app/
+scp -i pix2pix-key.pem gunicorn_config.py ubuntu@YOUR-IP:~/pix2pix-app/
+
+# Transfer model file (219 MB - this will take a few minutes)
+scp -i pix2pix-key.pem final_model.pth ubuntu@YOUR-IP:~/pix2pix-app/
+```
+
+**Note:** Model file transfer takes 5-10 minutes depending on connection speed.
+
+---
+
+## Step 5: Setup Python Environment
+
+**On EC2 instance:**
+
+```bash
+cd ~/pix2pix-app
+
+# Create virtual environment
+python3 -m venv venv
+
+# Activate
+source venv/bin/activate
+
+# Upgrade pip
+pip install --upgrade pip
+
+# Install dependencies
 pip install -r requirements.txt
 ```
 
-### 2. Create .env File (2 min)
+**Installation takes ~10 minutes** (PyTorch is large)
+
+---
+
+## Step 6: Configure AWS Rekognition
+
+### Create IAM Role
+
+1. **Go to IAM Console:** Services → Security → IAM
+2. **Create Role:**
+   - Trusted entity: AWS service → EC2
+   - Permissions: `AmazonRekognitionFullAccess`
+   - Name: `pix2pix-rekognition-role`
+3. **Attach to EC2:**
+   - EC2 → Instances → Select your instance
+   - Actions → Security → Modify IAM role
+   - Select: `pix2pix-rekognition-role`
+
+**This allows your app to access Rekognition without hardcoded credentials.** ✅
+
+---
+
+## Step 7: Start Application
+
+### Using Screen (Persistent Session)
 
 ```bash
-# Copy template
-cp .env.example .env
+# Create screen session
+screen -S pix2pix
 
-# Edit with your credentials
-nano .env  # or use any text editor
+# Activate venv
+cd ~/pix2pix-app
+source venv/bin/activate
+
+# Start Gunicorn
+gunicorn app:app --bind 0.0.0.0:8000 --timeout 300 --workers 1 --preload
 ```
 
-Add your actual AWS credentials:
-```env
-AWS_REGION=us-east-1
-AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
-AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
-PORT=8000
-MODEL_PATH=final_model.pth
-```
+**Wait for:**
+[INFO] Listening at: http://0.0.0.0:8000
+✓ Pix2Pix model loaded successfully
+✓ AWS Rekognition client initialized successfully
 
-### 3. Test Everything (5 min)
+**Detach from screen:** Press `Ctrl+A`, then `D`
+
+**Exit SSH:** Type `exit`
+
+---
+
+## Step 8: Test Deployment
+
+### From Your Local Computer
 
 ```bash
-# Start server
-python app.py
+# Health check
+curl http://YOUR-PUBLIC-IP:8000/health
 
-# In another terminal, test it
-python test_generate.py
+# Expected response:
+# {"status":"healthy","model_loaded":true,"rekognition_enabled":true}
 
-# Or manually
-curl http://localhost:8000/health
+# Service info
+curl http://YOUR-PUBLIC-IP:8000/
+
+# Generate map
+curl -X POST -F "image=@satellite.jpg" \
+     http://YOUR-PUBLIC-IP:8000/generate-enhanced \
+     -o result.json
+
+# Decode result
+python decode.py
 ```
 
-### 4. Setup Git (5 min)
-
-```bash
-# Initialize git
-git init
-
-# Add all files
-git add .
-
-# IMPORTANT: Verify these are NOT being added
-git status | grep -E "(\.pth|\.env)"
-# Should show nothing
-
-# Make first commit
-git commit -m "Initial commit: Pix2Pix + AWS Rekognition"
-
-# Create GitHub repo and push
-git remote add origin https://github.com/yourusername/pix2pix-rekognition.git
-git branch -M main
-git push -u origin main
-```
-
-### 5. Add GitHub Description (1 min)
-
-On GitHub:
-- Description: `Pix2Pix GAN for satellite-to-map translation with AWS Rekognition`
-- Topics: `machine-learning`, `computer-vision`, `pix2pix`, `aws`, `gan`
-
-## That's It! ✅
-
-Your project is now on GitHub with:
-- ✅ Professional README
-- ✅ Secure credentials (not in git)
-- ✅ Model file not in git
-- ✅ Working API
-- ✅ Complete training notebook
+---
 
 ## Troubleshooting
 
-### `.env` or `final_model.pth` showing in git?
+### Connection Refused
+
+**Problem:** Application not running  
+**Solution:**
+```bash
+ssh -i pix2pix-key.pem ubuntu@YOUR-IP
+screen -r pix2pix  # Reattach to check status
+```
+
+### Out of Memory Errors
+
+**Problem:** t3.micro insufficient  
+**Solution:** Upgrade to t3.small (2GB RAM required)
+
+### Port Already in Use
+
+**Problem:** Previous process still running  
+**Solution:**
+```bash
+pkill -f gunicorn
+sudo lsof -i :8000  # Verify port is free
+```
+
+### Rekognition Not Working
+
+**Problem:** IAM role not attached  
+**Solution:** Verify IAM role in EC2 console → Instance details
+
+---
+
+## Managing the Service
+
+### Check if Running
 
 ```bash
-git rm --cached .env final_model.pth
-git add .gitignore
-git commit -m "Fix: ensure sensitive files are ignored"
+ssh -i pix2pix-key.pem ubuntu@YOUR-IP
+screen -ls
+
+# Should show: XXXX.pix2pix (Detached)
 ```
 
-### Port 8000 already in use?
+### View Logs
 
 ```bash
-# Kill process on port 8000
-lsof -ti:8000 | xargs kill -9
-
-# Or use different port
-PORT=8001 python app.py
+screen -r pix2pix  # Reattach to see output
+# Detach: Ctrl+A, D
 ```
 
-### AWS credentials not working?
+### Restart Service
 
-Check your `.env` file:
 ```bash
-cat .env  # Verify format is correct
+screen -X -S pix2pix quit  # Stop
+screen -S pix2pix          # Start new session
+# ... run gunicorn command ...
 ```
 
-Test AWS connection:
+### Stop Service
+
 ```bash
-python -c "import boto3; boto3.client('rekognition', region_name='us-east-1').describe_projects()"
+screen -X -S pix2pix quit
 ```
 
-## What You Have Now
+---
 
-```
-Your Project/
-├── app.py ✅                          # Updated with .env support
-├── requirements.txt ✅                 # Updated with AWS packages  
-├── gunicorn_config.py ✅              # Your original file
-├── test_generate.py ✅                # Updated to auto-detect port
-├── Pix2Pix_Satellite_to_Map.ipynb ✅ # Your training notebook
-├── final_model.pth ✅                 # Your trained model (not in git)
-├── .env ✅                            # NEW - Your credentials (not in git)
-├── .env.example ✅                    # NEW - Template (in git)
-├── .gitignore ✅                      # NEW - Protects sensitive files
-└── README.md ✅                       # NEW - Documentation
-```
+## Cost Management
 
-## Next Steps (Optional)
+### Monthly Costs (t3.small, on-demand)
 
-Want to add more? You can add later:
-- Docker support
-- More tests
-- Deployment guides
-- Contributing guidelines
+| Item | Cost |
+|------|------|
+| EC2 t3.small | ~$17/month |
+| EBS Storage (20GB) | ~$2/month |
+| Data Transfer (minimal) | ~$0/month |
+| Rekognition | $1 per 1,000 images |
+
+**Total:** ~$19/month base + usage
+
+### Stopping Instance
+
+**Stop (preserves instance):**
+- AWS Console → EC2 → Instances → Instance State → Stop
+- Cost after stopping: ~$2/month (storage only)
+
+**Terminate (deletes everything):**
+- AWS Console → EC2 → Instances → Instance State → Terminate
+- Cost after terminating: $0/month
+
+---
+
+## Security Best Practices
+
+1. ✅ Use IAM roles instead of access keys
+2. ✅ Keep SSH keys secure (never commit to Git)
+3. ✅ Restrict security group to specific IPs (optional)
+4. ✅ Regular system updates: `sudo apt update && sudo apt upgrade`
+5. ✅ Monitor billing: Set up AWS billing alerts
+
+---
+
+## Architecture
+User Request
+↓
+Internet
+↓
+AWS EC2 t3.small
+↓
+Flask + Gunicorn (Port 8000)
+↓
+┌─────────────────────────────────┐
+│  Pix2Pix GAN (PyTorch)          │
+│  + AWS Rekognition API          │
+└─────────────────────────────────┘
+↓
+Response (Generated Map)
+
+---
+
+## Performance Expectations
+
+- **First request:** 3-5 seconds (cold start)
+- **Subsequent requests:** 2-3 seconds average
+- **Memory usage:** ~1.2 GB during inference
+- **CPU usage:** ~80% during processing
+
+---
+
+## Next Steps
+
+After successful deployment:
+
+1. ✅ Test all endpoints
+2. ✅ Set up CloudWatch monitoring (optional)
+3. ✅ Configure automated backups (optional)
+4. ✅ Document your public IP for API consumers
+
+---
+
+## Author
+
+Nguyen Thi Hong Linh
+**GitHub:** [@linhthihongnguyen](https://github.com/linhthihongnguyen)
